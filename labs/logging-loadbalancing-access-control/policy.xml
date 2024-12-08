@@ -1,0 +1,46 @@
+<policies>
+    <inbound>
+        <base />
+        <validate-azure-ad-token tenant-id="{aad-tenant-id}">
+            <client-application-ids>
+                <application-id>{aad-client-application-id}</application-id>
+            </client-application-ids>
+        </validate-azure-ad-token>
+        <!-- Managed Identity Authentication -->
+        <authentication-managed-identity resource="https://cognitiveservices.azure.com" output-token-variable-name="managed-id-access-token" ignore-error="false" />
+        
+        <!-- Set Authorization Header -->
+        <set-header name="Authorization" exists-action="override">
+            <value>@("Bearer " + (string)context.Variables["managed-id-access-token"])</value>
+        </set-header>
+        
+        <!-- Set Backend Service to Pool -->
+        <set-backend-service backend-id="{backend-id}" />
+    </inbound>
+    
+    <backend>
+        <!-- Retry Policy -->
+        <retry condition="@(context.Response.StatusCode == 429 || (context.Response.StatusCode == 503 && !context.Response.StatusReason.Contains("Backend pool") && !context.Response.StatusReason.Contains("is temporarily unavailable")))"
+               count="2"
+               interval="0"
+               first-fast-retry="true">
+            <forward-request buffer-request-body="true" />
+        </retry>
+    </backend>
+    
+    <outbound>
+        <base />
+    </outbound>
+    
+    <on-error>
+        <base />
+        <choose>
+            <!-- Return Generic 503 Error -->
+            <when condition="@(context.Response.StatusCode == 503)">
+                <return-response>
+                    <set-status code="503" reason="Service Unavailable" />
+                </return-response>
+            </when>
+        </choose>
+    </on-error>
+</policies>
